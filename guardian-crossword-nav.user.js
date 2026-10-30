@@ -1,12 +1,14 @@
 // ==UserScript==
 // @name         Guardian Crossword Prev/Next
-// @namespace    https://example.local/guardian-crossword-nav
-// @version      1.1
-// @description  Adds previous/next crossword links beside the PDF link on Guardian cryptic and prize crossword pages
+// @namespace    https://github.com/shaun-plumb/GuardianCrosswordJS
+// @version      1.2
+// @description  Adds previous/next crossword buttons beside the Share button on Guardian cryptic and prize crossword pages
 // @match        https://www.theguardian.com/crosswords/cryptic/*
 // @match        https://www.theguardian.com/crosswords/prize/*
 // @run-at       document-idle
 // @grant        none
+// @updateURL    https://raw.githubusercontent.com/shaun-plumb/GuardianCrosswordJS/main/guardian-crossword-nav.user.js
+// @downloadURL  https://raw.githubusercontent.com/shaun-plumb/GuardianCrosswordJS/main/guardian-crossword-nav.user.js
 // ==/UserScript==
 
 (function () {
@@ -19,24 +21,24 @@
   const num = parseInt(m[2], 10);
   const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
+  function findDateline() {
+    return document.querySelector('[data-gu-name="dateline"]');
+  }
+
   // Weekday of the current puzzle, from the dateline element.
   function readDay() {
     if (type === 'prize') return 'Sat';
-    const el = document.querySelector('[data-gu-name="dateline"]');
+    const el = findDateline();
     const d = el && el.textContent.trim().slice(0, 3);
     return DAYS.includes(d) ? d : null;
   }
 
-  // The "PDF version" link, found by its target rather than the hashed class.
-  function findPdfLink() {
-    return document.querySelector(
-      '[data-gu-name="standfirst"] a[href*="crosswords-static.guim.co.uk"]'
+  // The Share button, found by its visible label rather than a hashed class.
+  function findShare() {
+    const nav = document.getElementById('gu-xword-nav');
+    return Array.from(document.querySelectorAll('button, a')).find(
+      (el) => !(nav && nav.contains(el)) && el.textContent.trim().toLowerCase() === 'share'
     );
-  }
-
-  // Where to insert: after the PDF link, else at the end of the standfirst.
-  function findHost() {
-    return findPdfLink() || document.querySelector('[data-gu-name="standfirst"]');
   }
 
   // Mon-Fri are cryptic, Sat is prize, no Sunday; numbers are consecutive.
@@ -53,10 +55,10 @@
 
   function build(day) {
     if (document.getElementById('gu-xword-nav')) return;
-    const host = findHost();
-    if (!host) return;
+    const share = findShare();
+    const anchor = share || findDateline();
+    if (!anchor) return;
 
-    const pdf = findPdfLink();
     const t = targets(day);
 
     const wrap = document.createElement('span');
@@ -64,32 +66,51 @@
     wrap.setAttribute('data-print-layout', 'hide');
     Object.assign(wrap.style, {
       display: 'inline-flex',
-      gap: '14px',
-      marginLeft: '14px',
-      whiteSpace: 'nowrap',
+      flexWrap: 'wrap',
+      gap: '8px',
+      margin: share ? '0 0 0 8px' : '8px 0 0 0',
+      verticalAlign: 'middle',
     });
 
     [['← Previous', t.prev], ['Next →', t.next]].forEach(([label, href]) => {
       const a = document.createElement('a');
       a.href = href;
       a.textContent = label;
-      if (pdf) a.className = pdf.className;   // match the PDF link's styling
-      else a.style.textDecoration = 'underline';
+      if (share) a.className = share.className;   // match the Share pill's styling
+      Object.assign(a.style, {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        textDecoration: 'none',
+        whiteSpace: 'nowrap',
+        cursor: 'pointer',
+      });
+      if (!share) {
+        // Fallback pill if the Share button can't be found
+        Object.assign(a.style, {
+          border: '1px solid currentColor',
+          borderRadius: '22px',
+          padding: '8px 16px',
+          color: 'inherit',
+          font: 'bold 15px sans-serif',
+        });
+      }
       wrap.appendChild(a);
     });
 
-    if (pdf) pdf.after(wrap);
-    else host.appendChild(wrap);
+    anchor.after(wrap);
   }
 
   function tryBuild(allowFallback) {
-    if (!findHost()) return false;
+    if (!findShare() && !findDateline()) return false;
     let day = readDay();
     if (!day) {
       if (!allowFallback) return false;
       console.warn('[Guardian Crossword Nav] Dateline not found; assuming midweek.');
       day = 'Wed';
     }
+    // Give the Share button a chance to render before settling for the dateline.
+    if (!findShare() && !allowFallback) return false;
     build(day);
     return true;
   }
@@ -105,7 +126,7 @@
   setTimeout(() => {
     obs.disconnect();
     if (!document.getElementById('gu-xword-nav') && !tryBuild(true)) {
-      console.warn('[Guardian Crossword Nav] Could not find the standfirst/PDF link.');
+      console.warn('[Guardian Crossword Nav] Could not find a place to insert the buttons.');
     }
   }, 10000);
 })();
